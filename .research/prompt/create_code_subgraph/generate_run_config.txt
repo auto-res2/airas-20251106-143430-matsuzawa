@@ -1,0 +1,117 @@
+
+LLM Name: o3-2025-04-16
+Input:
+You are an AI research assistant tasked with generating Hydra configuration files for experiment runs.
+
+# Task
+Generate individual YAML configuration files for each experiment run. These configs will be used by Hydra to configure specific experimental variations.
+
+# Input Information
+
+## Hypothesis
+open_problems='AdaLoRA shows that allocating the same LoRA rank to every weight matrix is sub-optimal, but its SVD-based importance metric (sensitivity + uncertainty on every singular triplet) costs an extra 11-16 % training time and requires additional code that is hard to port. Can we obtain most of the accuracy gain of adaptive rank allocation with a much cheaper signal that is already produced during standard back-propagation?' method='Gradient-Norm Aware Rank Allocation for LoRA (GLoRA)\n1. Keep the ordinary LoRA parameterisation W  ←  W  +  Δ where Δ=AB^T,  rank r.\n2. During the first Twarmup optimisation steps record, for every trainable weight matrix k, the exponential-moving-average (EMA) of its LoRA gradient Frobenius norm:  g_k  ←  β·g_k  +  (1-β)·||∂L/∂Δ_k||_F.\n3. After warm-up compute importance scores  s_k  =  g_k / Σ_j g_j.\n4. Given a global rank budget Rtotal (e.g. 128), assign matrix-specific ranks  r_k  =  round( Rtotal · s_k ).  Ensure Σ_k r_k  =  Rtotal by adding / removing 1 where needed.\n5. Re-initialise each LoRA layer with its new rank (easy because LoRA stores A∈ℝ^{d×r}, B∈ℝ^{d×r}).  The already learned sub-matrices for the kept columns are copied; extra columns are created with the same init as LoRA; dropped columns are discarded.  Training then continues normally.\n\nWhy it should work: the gradient norm is a first-order estimate of how much the loss would change if the associated parameters were perturbed. It therefore correlates with parameter importance but is essentially free to compute (it is produced anyway by back-prop).  Unlike AdaLoRA we do not need an SVD or per-singular-value statistics, so no extra forward / backward passes are introduced.' experimental_setup='Model: DeBERTa-v3-base (same as AdaLoRA paper).\nTasks: GLUE (MNLI, SST-2, RTE) – three representative tasks to keep the demo light.\nBaselines: (1) Ordinary LoRA with uniform rank r=8 per matrix (≈0.2 % params). (2) AdaLoRA with the same global budget (re-implemented from the official repo). (3) Proposed GLoRA with Rtotal = number of LoRA matrices × 8.\nHyper-parameters: identical to LoRA baseline (lr=2e-4, batch=32, 3 epochs).  Warm-up Twarmup = one epoch, β = 0.9.\nMetrics: task-specific dev set accuracy / Matthew’s Corr.; wall-clock training time.  Each experiment is run with a single V100 for fair timing.' experimental_code='# -------- glo_ra.py --------\nimport torch, math\nfrom peft import get_peft_model, LoraConfig   # pip install peft\n\nclass GLoRAWrapper:\n    """Wrap a HF model with gradient-norm aware rank allocation."""\n    def __init__(self, hf_model, r_init=8, total_rank=128, beta=0.9, warmup_steps=1000):\n        self.model = get_peft_model(hf_model, LoraConfig(r=r_init))\n        self.total_rank = total_rank\n        self.beta = beta\n        self.warmup_steps = warmup_steps\n        self.step = 0\n        # collect lora modules\n        self.lora_modules = [m for m in self.model.modules() if hasattr(m, "lora_A")]\n        self.g_ema = torch.zeros(len(self.lora_modules), device=hf_model.device)\n        # register hooks to capture grad norms\n        for idx, m in enumerate(self.lora_modules):\n            m.lora_B.register_hook(self._make_hook(idx))\n\n    def _make_hook(self, idx):\n        def hook(grad):\n            gn = grad.norm()  # frobenius\n            self.g_ema[idx] = self.beta * self.g_ema[idx] + (1 - self.beta) * gn\n        return hook\n\n    def step_callback(self):\n        self.step += 1\n        if self.step == self.warmup_steps:\n            # allocate new ranks\n            scores = self.g_ema / self.g_ema.sum()\n            ranks = torch.round(scores * self.total_rank).int().tolist()\n            # exact budget fix\n            diff = self.total_rank - sum(ranks)\n            for i in range(abs(diff)):\n                ranks[i % len(ranks)] += 1 if diff > 0 else -1\n            # rebuild LoRA layers\n            for new_r, mod in zip(ranks, self.lora_modules):\n                old_r = mod.lora_A.weight.size(0)\n                if new_r == old_r:  # nothing to do\n                    continue\n                # keep the first min(old_r, new_r) columns\n                keep = min(old_r, new_r)\n                with torch.no_grad():\n                    A_old, B_old = mod.lora_A.weight.data[:keep], mod.lora_B.weight.data[:keep]\n                    mod.update_layer(r=new_r)  # provided by peft, re-initialises weights\n                    mod.lora_A.weight.data[:keep] = A_old\n                    mod.lora_B.weight.data[:keep] = B_old\n            print("[GLoRA] re-allocated ranks", ranks)\n' expected_result='1. Accuracy: GLoRA ≈ AdaLoRA > vanilla LoRA.  We expect +0.5-1.0 GLUE score points over uniform LoRA, matching 90-95 % of AdaLoRA’s gain.\n2. Training time: GLoRA ≈ LoRA (within ±2 %), clearly faster than AdaLoRA (which reports +11-16 %).\n3. Parameter count: identical to AdaLoRA, both respect the same global budget.' expected_conclusion='A single extra bookkeeping line (EMA of gradient norms) is enough to reap most of the benefits of adaptive budget allocation without incurring the computational overhead of AdaLoRA’s SVD-based importance analysis.  This demonstrates that inexpensive first-order signals already available in standard training loops can guide parameter-efficient fine-tuning, making advanced PEFT techniques accessible to practitioners with limited hardware or engineering budget.'
+
+## Research Method
+Gradient-Norm Aware Rank Allocation for LoRA (GLoRA)
+1. Keep the ordinary LoRA parameterisation W  ←  W  +  Δ where Δ=AB^T,  rank r.
+2. During the first Twarmup optimisation steps record, for every trainable weight matrix k, the exponential-moving-average (EMA) of its LoRA gradient Frobenius norm:  g_k  ←  β·g_k  +  (1-β)·||∂L/∂Δ_k||_F.
+3. After warm-up compute importance scores  s_k  =  g_k / Σ_j g_j.
+4. Given a global rank budget Rtotal (e.g. 128), assign matrix-specific ranks  r_k  =  round( Rtotal · s_k ).  Ensure Σ_k r_k  =  Rtotal by adding / removing 1 where needed.
+5. Re-initialise each LoRA layer with its new rank (easy because LoRA stores A∈ℝ^{d×r}, B∈ℝ^{d×r}).  The already learned sub-matrices for the kept columns are copied; extra columns are created with the same init as LoRA; dropped columns are discarded.  Training then continues normally.
+
+Why it should work: the gradient norm is a first-order estimate of how much the loss would change if the associated parameters were perturbed. It therefore correlates with parameter importance but is essentially free to compute (it is produced anyway by back-prop).  Unlike AdaLoRA we do not need an SVD or per-singular-value statistics, so no extra forward / backward passes are introduced.
+
+## Experimental Design
+experiment_summary='We will verify that the inexpensive gradient-norm aware rank allocation strategy for LoRA (GLoRA) can recover almost all the accuracy benefit of AdaLoRA while keeping training cost identical to vanilla LoRA.  The experiment fine-tunes the encoder-only DeBERTa-v3-base model on the MNLI portion of GLUE using three different parameter-efficient fine-tuning schemes:  (1) ordinary LoRA with a fixed rank of 8 for every projection matrix; (2) AdaLoRA, the published adaptive-rank baseline; (3) the proposed GLoRA.  All runs share the same optimisation schedule and global LoRA-rank budget.  During the first warm-up epoch GLoRA keeps a running EMA of the Frobenius norm of each LoRA gradient; the resulting scores are used to redistribute the fixed total rank across layers.  Because the signal is collected during the normal backward pass, no extra training steps or SVDs are introduced.  At the warm-up boundary the LoRA modules are rebuilt with their newly assigned ranks and training proceeds for the remaining epochs.  We measure development-set accuracy and Matthews correlation on MNLI and record wall-clock training time on one A100 to demonstrate that GLoRA matches AdaLoRA’s accuracy with LoRA-level speed.' evaluation_metrics=['Accuracy', 'Matthews Correlation', 'Wall-clock Training Time'] proposed_method='Gradient-Norm Aware Rank Allocation for LoRA (GLoRA)\nObjective: Achieve adaptive allocation of the LoRA rank budget across layers without the heavy SVD-based importance analysis used by AdaLoRA.\nAlgorithm:\n1. Start from the standard LoRA formulation Δ=ABᵀ with an initial uniform rank r_init.\n2. For every LoRA layer k maintain an exponential moving average g_k of its gradient Frobenius norm:\n   g_k ← β·g_k + (1−β)·∥∂L/∂Δ_k∥_F.\n3. Collect g_k during the first T_warmup optimisation steps (one epoch in our setup).\n4. After warm-up compute importance scores s_k = g_k / Σ_j g_j and convert them into integer ranks r_k = round(R_total·s_k).  Correct rounding so Σ_k r_k = R_total.\n5. Re-initialise each LoRA module with its new rank, copying already learned columns that are kept and randomly initialising added columns.\n6. Continue training for the remaining epochs with the redistributed budget.\nImplementation details:\n• A lightweight wrapper around HuggingFace PEFT registers backward hooks on lora_B weights to accumulate gradient norms, adding virtually zero overhead.\n• Rank re-allocation uses the update_layer() utility supplied by PEFT, so no custom CUDA kernels are required.\n• Hyper-parameters identical to vanilla LoRA: AdamW, lr=2e-4, batch=32, 3 epochs.  Only β (0.9), T_warmup (1 epoch) and R_total (num_layers×8) are additional.\nTheoretical motivation: The gradient norm is a first-order proxy for the loss sensitivity to parameter perturbations; allocating more capacity where this sensitivity is high should maximise loss reduction per parameter—mirroring the intuition behind AdaLoRA but without second-order analysis.' comparative_methods=['AdaLoRA'] models_to_use=['DeBERTa-v3-base (86M)'] datasets_to_use=['GLUE MNLI'] hyperparameters_to_search={'learning_rate': '1e-4-5e-4', 'beta (EMA)': '0.8-0.99', 'total_rank': '96,128,160', 'warmup_steps': '500-1500'} external_resources=ExternalResources(hugging_face=HuggingFace(models=[HuggingFaceResource(id='microsoft/deberta-v3-base', author='microsoft', sha='8ccc9b6f36199bec6961081d44eb72fb3f7353f3', created_at=datetime.datetime(2022, 3, 2, 23, 29, 5, tzinfo=TzInfo(UTC)), last_modified=datetime.datetime(2022, 9, 22, 12, 34, 19, tzinfo=TzInfo(UTC)), private=False, gated=False, disabled=False, downloads=2518675, likes=372, siblings=[HuggingFaceSibling(rfilename='.gitattributes', size=None, blob_id=None, lfs=None), HuggingFaceSibling(rfilename='README.md', size=None, blob_id=None, lfs=None), HuggingFaceSibling(rfilename='config.json', size=None, blob_id=None, lfs=None), HuggingFaceSibling(rfilename='pytorch_model.bin', size=None, blob_id=None, lfs=None), HuggingFaceSibling(rfilename='rust_model.ot', size=None, blob_id=None, lfs=None), HuggingFaceSibling(rfilename='spm.model', size=None, blob_id=None, lfs=None), HuggingFaceSibling(rfilename='tf_model.h5', size=None, blob_id=None, lfs=None), HuggingFaceSibling(rfilename='tokenizer_config.json', size=None, blob_id=None, lfs=None)], card_data=HuggingFaceCardData(license='mit', language='en', library_name=None, pipeline_tag=None, tags=['deberta', 'deberta-v3', 'fill-mask'], datasets=[], model_type=None, base_model=None, task_categories=[], size_categories=[], metrics=[], widget=[]), tags=['transformers', 'pytorch', 'tf', 'rust', 'deberta-v2', 'deberta', 'deberta-v3', 'fill-mask', 'en', 'arxiv:2006.03654', 'arxiv:2111.09543', 'license:mit', 'endpoints_compatible', 'region:us'], pipeline_tag='fill-mask', library_name='transformers', readme='---\nlanguage: en\ntags: \n  - deberta\n  - deberta-v3\n  - fill-mask\nthumbnail: https://huggingface.co/front/thumbnails/microsoft.png\nlicense: mit\n---\n\n## DeBERTaV3: Improving DeBERTa using ELECTRA-Style Pre-Training with Gradient-Disentangled Embedding Sharing\n\n[DeBERTa](https://arxiv.org/abs/2006.03654) improves the BERT and RoBERTa models using disentangled attention and enhanced mask decoder. With those two improvements, DeBERTa out perform RoBERTa on a majority of NLU tasks with 80GB training data. \n\nIn [DeBERTa V3](https://arxiv.org/abs/2111.09543), we further improved the efficiency of DeBERTa using ELECTRA-Style pre-training with Gradient Disentangled Embedding Sharing. Compared to DeBERTa,  our V3 version significantly improves the model performance on downstream tasks.  You can find more technique details about the new model from our [paper](https://arxiv.org/abs/2111.09543).\n\nPlease check the [official repository](https://github.com/microsoft/DeBERTa) for more implementation details and updates.\n\nThe DeBERTa V3 base model comes with 12 layers and a hidden size of 768. It has only 86M backbone parameters  with a vocabulary containing 128K tokens which introduces 98M parameters in the Embedding layer.  This model was trained using the 160GB data as DeBERTa V2.\n\n\n#### Fine-tuning on NLU tasks\n\nWe present the dev results on SQuAD 2.0 and MNLI tasks.\n\n| Model             |Vocabulary(K)|Backbone #Params(M)| SQuAD 2.0(F1/EM) | MNLI-m/mm(ACC)|\n|-------------------|----------|-------------------|-----------|----------|\n| RoBERTa-base      |50     |86                 | 83.7/80.5 | 87.6/-   |\n| XLNet-base        |32     |92                 | -/80.2    | 86.8/-   |\n| ELECTRA-base      |30    |86                  | -/80.5    | 88.8/    |\n| DeBERTa-base      |50     |100                |  86.2/83.1| 88.8/88.5|\n| DeBERTa-v3-base   |128|86                       | **88.4/85.4** | **90.6/90.7**|\n| DeBERTa-v3-base + SiFT |128|86                | -/- | 91.0/-|\n\nWe present the dev results on SQuAD 1.1/2.0 and MNLI tasks.\n\n#### Fine-tuning with HF transformers\n\n```bash\n#!/bin/bash\n\ncd transformers/examples/pytorch/text-classification/\n\npip install datasets\nexport TASK_NAME=mnli\n\noutput_dir="ds_results"\n\nnum_gpus=8\n\nbatch_size=8\n\npython -m torch.distributed.launch --nproc_per_node=${num_gpus} \\\n  run_glue.py \\\n  --model_name_or_path microsoft/deberta-v3-base \\\n  --task_name $TASK_NAME \\\n  --do_train \\\n  --do_eval \\\n  --evaluation_strategy steps \\\n  --max_seq_length 256 \\\n  --warmup_steps 500 \\\n  --per_device_train_batch_size ${batch_size} \\\n  --learning_rate 2e-5 \\\n  --num_train_epochs 3 \\\n  --output_dir $output_dir \\\n  --overwrite_output_dir \\\n  --logging_steps 1000 \\\n  --logging_dir $output_dir\n\n```\n\n### Citation\n\nIf you find DeBERTa useful for your work, please cite the following papers:\n\n``` latex\n@misc{he2021debertav3,\n      title={DeBERTaV3: Improving DeBERTa using ELECTRA-Style Pre-Training with Gradient-Disentangled Embedding Sharing}, \n      author={Pengcheng He and Jianfeng Gao and Weizhu Chen},\n      year={2021},\n      eprint={2111.09543},\n      archivePrefix={arXiv},\n      primaryClass={cs.CL}\n}\n```\n\n``` latex\n@inproceedings{\nhe2021deberta,\ntitle={DEBERTA: DECODING-ENHANCED BERT WITH DISENTANGLED ATTENTION},\nauthor={Pengcheng He and Xiaodong Liu and Jianfeng Gao and Weizhu Chen},\nbooktitle={International Conference on Learning Representations},\nyear={2021},\nurl={https://openreview.net/forum?id=XPZIaotutsD}\n}\n```\n', model_index=None, widget_data=None, config=None, transformers_info=None, spaces=None, safetensors=None, used_storage=None, extracted_code='')], datasets=[HuggingFaceResource(id='Neuronovo/neuronovo-utc-data-glue-mnli', author='Neuronovo', sha='a1fbcdc0845b1793f066ceea222f1a60cc263a5f', created_at=datetime.datetime(2024, 1, 25, 19, 46, 58, tzinfo=TzInfo(UTC)), last_modified=datetime.datetime(2024, 1, 25, 21, 1, 39, tzinfo=TzInfo(UTC)), private=False, gated=False, disabled=False, downloads=56, likes=0, siblings=[HuggingFaceSibling(rfilename='.gitattributes', size=None, blob_id=None, lfs=None), HuggingFaceSibling(rfilename='README.md', size=None, blob_id=None, lfs=None), HuggingFaceSibling(rfilename='data/test-00000-of-00001.parquet', size=None, blob_id=None, lfs=None), HuggingFaceSibling(rfilename='data/train-00000-of-00001.parquet', size=None, blob_id=None, lfs=None), HuggingFaceSibling(rfilename='data/validation-00000-of-00001.parquet', size=None, blob_id=None, lfs=None)], card_data=HuggingFaceCardData(license=None, language=[], library_name=None, pipeline_tag=None, tags=[], datasets=[], model_type=None, base_model=None, task_categories=[], size_categories=[], metrics=[], widget=[]), tags=['size_categories:1M<n<10M', 'format:parquet', 'modality:tabular', 'modality:text', 'library:datasets', 'library:pandas', 'library:mlcroissant', 'library:polars', 'region:us'], pipeline_tag=None, library_name=None, readme='---\ndataset_info:\n  features:\n  - name: x\n    dtype: string\n  - name: y\n    dtype: int64\n  - name: label_id\n    dtype: int64\n  - name: text\n    dtype: string\n  - name: id\n    dtype: int64\n  splits:\n  - name: train\n    num_bytes: 492690051\n    num_examples: 1119828\n  - name: validation\n    num_bytes: 25718605\n    num_examples: 58278\n  - name: test\n    num_bytes: 26234868\n    num_examples: 58941\n  download_size: 144048422\n  dataset_size: 544643524\nconfigs:\n- config_name: default\n  data_files:\n  - split: train\n    path: data/train-*\n  - split: validation\n    path: data/validation-*\n  - split: test\n    path: data/test-*\n---\n', model_index=None, widget_data=None, config=None, transformers_info=None, spaces=None, safetensors=None, used_storage=None, extracted_code=None)])) experiment_code=None
+
+## Experiment Runs
+
+- Run ID: proposed-DeBERTa-v3-base-86M--GLUE-MNLI
+  Method: proposed
+  Model: DeBERTa-v3-base (86M)
+  Dataset: GLUE MNLI
+
+- Run ID: comparative-1-DeBERTa-v3-base-86M--GLUE-MNLI
+  Method: comparative-1
+  Model: DeBERTa-v3-base (86M)
+  Dataset: GLUE MNLI
+
+
+# Requirements
+
+## Configuration Structure
+Each run configuration should include:
+- run_id: Unique identifier for this run
+- method: The method name (baseline, proposed, ablation, etc.)
+- model: Model-specific parameters (name, architecture details, hyperparameters)
+- dataset: Dataset-specific parameters (name, preprocessing settings, split ratios)
+- training: Training hyperparameters (learning rate, batch size, epochs, optimizer settings)
+- optuna: Hyperparameter search space definition for Optuna optimization
+  - Define search spaces for key hyperparameters using Optuna's suggest methods
+  - Example: learning_rate: [1e-5, 1e-3], batch_size: [16, 32, 64]
+- Any other experiment-specific settings
+
+## Format
+- Generate one YAML configuration per experiment run
+- Ensure valid YAML syntax
+- Use meaningful parameter values based on the research method and experimental design
+
+## Example Configuration
+```yaml
+run_id: baseline_bert_imdb
+method: baseline
+model:
+  name: bert-base-uncased
+  hidden_size: 768
+  num_layers: 12
+dataset:
+  name: imdb
+  max_length: 512
+  batch_size: 32
+training:
+  learning_rate: 2e-5
+  epochs: 3
+  optimizer: adamw
+  warmup_steps: 500
+optuna:
+  n_trials: 20
+  search_space:
+    learning_rate:
+      type: loguniform
+      low: 1e-5
+      high: 1e-3
+    batch_size:
+      type: categorical
+      choices: [16, 32, 64]
+```
+
+# Experimental Environment
+NVIDIA A100 or H200
+VRAM: 80 GB or more
+RAM: 2048 GB or more
+
+# Instructions
+1. Generate one YAML configuration for each experiment run listed above
+2. Ensure configurations reflect the differences between baseline, proposed, and ablation methods
+3. Use appropriate hyperparameters based on the experimental design
+4. Include Optuna search space if hyperparameter optimization is beneficial for the experiment
+5. For Optuna search spaces, use appropriate distribution types:
+   - loguniform: For learning rates, regularization parameters
+   - uniform: For dropout rates, weight decay
+   - int: For hidden dimensions, number of layers
+   - categorical: For discrete choices like batch size, optimizer type
+
+Generate the configurations now:
+Output:
+{
+  "run_configs": [
+    {
+      "run_id": "proposed-DeBERTa-v3-base-86M--GLUE-MNLI",
+      "run_config_yaml": "run_id: proposed-DeBERTa-v3-base-86M--GLUE-MNLI\nmethod: proposed\nmethod_name: GLoRA\nmodel:\n  backbone: microsoft/deberta-v3-base\n  peft:\n    type: lora\n    init_rank: 8\n  hidden_size: 768\n  num_layers: 12\n  num_parameters: 86M\ndataset:\n  name: glue_mnli\n  max_length: 256\n  batch_size: 32\ntraining:\n  epochs: 3\n  optimizer: adamw\n  learning_rate: 2e-4\n  weight_decay: 0.01\n  lr_scheduler: linear\n  lr_warmup_steps: 1000\n  max_grad_norm: 1.0\n  gradient_checkpointing: false\nglo_ra:\n  total_rank_budget: 128\n  beta_ema: 0.9\n  warmup_steps: 12000\nevaluation:\n  metrics: [accuracy, matthews_corrcoef]\n  track_training_time: true\nhardware:\n  gpu_type: a100\n  num_gpus: 1\noptuna:\n  n_trials: 25\n  direction: maximize\n  metric: validation_accuracy\n  search_space:\n    learning_rate:\n      type: loguniform\n      low: 1.0e-4\n      high: 5.0e-4\n    beta_ema:\n      type: uniform\n      low: 0.8\n      high: 0.99\n    total_rank_budget:\n      type: categorical\n      choices: [96, 128, 160]\n    warmup_steps:\n      type: int\n      low: 500\n      high: 1500\n    batch_size:\n      type: categorical\n      choices: [16, 32, 64]\n"
+    },
+    {
+      "run_id": "comparative-1-DeBERTa-v3-base-86M--GLUE-MNLI",
+      "run_config_yaml": "run_id: comparative-1-DeBERTa-v3-base-86M--GLUE-MNLI\nmethod: comparative-1\nmethod_name: AdaLoRA\nmodel:\n  backbone: microsoft/deberta-v3-base\n  peft:\n    type: adalora\n    init_rank: 8\n  hidden_size: 768\n  num_layers: 12\n  num_parameters: 86M\ndataset:\n  name: glue_mnli\n  max_length: 256\n  batch_size: 32\ntraining:\n  epochs: 3\n  optimizer: adamw\n  learning_rate: 2e-4\n  weight_decay: 0.01\n  lr_scheduler: linear\n  lr_warmup_steps: 1000\n  max_grad_norm: 1.0\n  gradient_checkpointing: false\nadalora:\n  total_rank_budget: 128\n  init_rank: 8\n  beta1: 0.9\n  beta2: 0.99\n  orth_reg_weight: 5.0e-4\n  adaptation_start_step: 12000\nevaluation:\n  metrics: [accuracy, matthews_corrcoef]\n  track_training_time: true\nhardware:\n  gpu_type: a100\n  num_gpus: 1\noptuna:\n  n_trials: 25\n  direction: maximize\n  metric: validation_accuracy\n  search_space:\n    learning_rate:\n      type: loguniform\n      low: 1.0e-4\n      high: 5.0e-4\n    orth_reg_weight:\n      type: loguniform\n      low: 1.0e-5\n      high: 1.0e-3\n    adaptation_start_step:\n      type: int\n      low: 500\n      high: 1500\n    total_rank_budget:\n      type: categorical\n      choices: [96, 128, 160]\n    batch_size:\n      type: categorical\n      choices: [16, 32, 64]\n"
+    }
+  ]
+}
