@@ -1,6 +1,9 @@
 # config/config.yaml – root Hydra configuration.
-# NOTE: Per-run settings live in ``config/run/<run_id>.yaml`` and are *merged* at
+# NOTE: Per-run settings live in ``config/runs/<run_id>.yaml`` and are *merged* at
 # run-time.  Only high-level defaults / global options live here.
+
+defaults:
+  - _self_
 
 run: null          # to be provided via CLI override (e.g. run=my-run-id)
 results_dir: outputs
@@ -41,39 +44,12 @@ run_node_placeholder: {}
 hydra:
   run:
     dir: logs/${now:%Y-%m-%d}/${now:%H-%M-%S}
-  output_subdir: .
   job:
     chdir: False
-  sweeper:
-    _target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
-    max_batch_size: null
-    params: {}
-  launcher:
-    _target_: hydra._internal.core_plugins.basic_launcher.BasicLauncher
-    n_jobs: 1
-  help: False
-  verbose: False
-  version_base: 1.3
-  searchpath: []
-  callbacks: {}
-  mode: RUN
-  overrides:
-    hydra/hydra_help: default
-    hydra/help: default
-    hydra/output: default
-    hydra/job_logging: default
-    hydra/debugging: default
-    hydra/env: default
-    hydra/overrides: default
-    hydra/launcher: basic
-    hydra/sweeper: basic
-    hydra/run: default
-  help_template: "Command line Overrides:  (Use 'python your_script.py --help' to show this message)"
-  help_short: ""
 
 # end of config.yaml
 
-# The actual experiment-specific YAMLs live in config/run/*.yaml and are not
+# The actual experiment-specific YAMLs live in config/runs/*.yaml and are not
 # tracked here – they are provided by the research workflow as described in the
 # documentation.  At run-time we load & merge them dynamically.
 

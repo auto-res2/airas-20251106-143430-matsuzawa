@@ -270,7 +270,7 @@ def _hydra_main(cfg: DictConfig) -> None:  # pragma: no-cover
     # ------------------------------------------------------------------
     if cfg.get("run", None) is None:
         raise ValueError("Argument run=<run_id> is required.")
-    run_yaml = Path(get_original_cwd()) / "config" / "run" / f"{cfg.run}.yaml"
+    run_yaml = Path(get_original_cwd()) / "config" / "runs" / f"{cfg.run}.yaml"
     if not run_yaml.exists():
         raise FileNotFoundError(f"Run config file not found: {run_yaml}")
     run_cfg = OmegaConf.load(run_yaml)
