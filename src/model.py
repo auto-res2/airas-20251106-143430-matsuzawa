@@ -34,11 +34,15 @@ class GLoRAWrapper:
 
         # gather LoRA modules that possess lora_A / lora_B parameters
         self.lora_modules = [m for m in self.model.modules() if hasattr(m, "lora_A") and hasattr(m, "lora_B")]
-        self.g_ema = torch.zeros(len(self.lora_modules), device=self.model.device)
+        self.g_ema = torch.zeros(len(self.lora_modules))
 
         # register hooks for gradient norms
         for idx, m in enumerate(self.lora_modules):
-            m.lora_B.register_hook(self._make_hook(idx))
+            # lora_B is a dict in newer PEFT versions
+            if hasattr(m.lora_B, "default"):
+                m.lora_B.default.weight.register_hook(self._make_hook(idx))
+            else:
+                m.lora_B.weight.register_hook(self._make_hook(idx))
 
     # ------------------------------------------------------------------
     # Internal helpers --------------------------------------------------
@@ -69,16 +73,23 @@ class GLoRAWrapper:
 
         # rebuild layers with new rank allocations
         for new_r, mod in zip(new_ranks, self.lora_modules):
-            old_r = mod.lora_A.weight.size(0)
+            # Handle different PEFT versions
+            lora_A_weight = mod.lora_A.default.weight if hasattr(mod.lora_A, "default") else mod.lora_A.weight
+            lora_B_weight = mod.lora_B.default.weight if hasattr(mod.lora_B, "default") else mod.lora_B.weight
+
+            old_r = lora_A_weight.size(0)
             if new_r == old_r:
                 continue
             keep = min(old_r, new_r)
             with torch.no_grad():
-                A_old = mod.lora_A.weight.data[:keep].clone()
-                B_old = mod.lora_B.weight.data[:keep].clone()
+                A_old = lora_A_weight.data[:keep].clone()
+                B_old = lora_B_weight.data[:keep].clone()
                 mod.update_layer(r=new_r)  # provided by peft.LoraLayer
-                mod.lora_A.weight.data[:keep] = A_old
-                mod.lora_B.weight.data[:keep] = B_old
+                # Update references after update_layer
+                lora_A_weight = mod.lora_A.default.weight if hasattr(mod.lora_A, "default") else mod.lora_A.weight
+                lora_B_weight = mod.lora_B.default.weight if hasattr(mod.lora_B, "default") else mod.lora_B.weight
+                lora_A_weight.data[:keep] = A_old
+                lora_B_weight.data[:keep] = B_old
         print(f"[GLoRA] New per-layer ranks: {new_ranks}")
 
 
@@ -136,5 +147,7 @@ def extract_lora_ranks(model: torch.nn.Module):
     ranks = {}
     for name, module in model.named_modules():
         if hasattr(module, "lora_A") and hasattr(module, "lora_B"):
-            ranks[name] = module.lora_A.weight.size(0)
+            # Handle different PEFT versions
+            lora_A_weight = module.lora_A.default.weight if hasattr(module.lora_A, "default") else module.lora_A.weight
+            ranks[name] = lora_A_weight.size(0)
     return ranks
