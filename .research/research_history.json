@@ -103,7 +103,45 @@
     },
     "iterations": [
       {
-        "method": "Gradient-Norm Aware Rank Allocation for LoRA (GLoRA)\n1. Keep the ordinary LoRA parameterisation W  ←  W  +  Δ where Δ=AB^T,  rank r.\n2. During the first Twarmup optimisation steps record, for every trainable weight matrix k, the exponential-moving-average (EMA) of its LoRA gradient Frobenius norm:  g_k  ←  β·g_k  +  (1-β)·||∂L/∂Δ_k||_F.\n3. After warm-up compute importance scores  s_k  =  g_k / Σ_j g_j.\n4. Given a global rank budget Rtotal (e.g. 128), assign matrix-specific ranks  r_k  =  round( Rtotal · s_k ).  Ensure Σ_k r_k  =  Rtotal by adding / removing 1 where needed.\n5. Re-initialise each LoRA layer with its new rank (easy because LoRA stores A∈ℝ^{d×r}, B∈ℝ^{d×r}).  The already learned sub-matrices for the kept columns are copied; extra columns are created with the same init as LoRA; dropped columns are discarded.  Training then continues normally.\n\nWhy it should work: the gradient norm is a first-order estimate of how much the loss would change if the associated parameters were perturbed. It therefore correlates with parameter importance but is essentially free to compute (it is produced anyway by back-prop).  Unlike AdaLoRA we do not need an SVD or per-singular-value statistics, so no extra forward / backward passes are introduced."
+        "method": "Gradient-Norm Aware Rank Allocation for LoRA (GLoRA)\n1. Keep the ordinary LoRA parameterisation W  ←  W  +  Δ where Δ=AB^T,  rank r.\n2. During the first Twarmup optimisation steps record, for every trainable weight matrix k, the exponential-moving-average (EMA) of its LoRA gradient Frobenius norm:  g_k  ←  β·g_k  +  (1-β)·||∂L/∂Δ_k||_F.\n3. After warm-up compute importance scores  s_k  =  g_k / Σ_j g_j.\n4. Given a global rank budget Rtotal (e.g. 128), assign matrix-specific ranks  r_k  =  round( Rtotal · s_k ).  Ensure Σ_k r_k  =  Rtotal by adding / removing 1 where needed.\n5. Re-initialise each LoRA layer with its new rank (easy because LoRA stores A∈ℝ^{d×r}, B∈ℝ^{d×r}).  The already learned sub-matrices for the kept columns are copied; extra columns are created with the same init as LoRA; dropped columns are discarded.  Training then continues normally.\n\nWhy it should work: the gradient norm is a first-order estimate of how much the loss would change if the associated parameters were perturbed. It therefore correlates with parameter importance but is essentially free to compute (it is produced anyway by back-prop).  Unlike AdaLoRA we do not need an SVD or per-singular-value statistics, so no extra forward / backward passes are introduced.",
+        "experimental_design": {
+          "experiment_summary": "We will verify that the inexpensive gradient-norm aware rank allocation strategy for LoRA (GLoRA) can recover almost all the accuracy benefit of AdaLoRA while keeping training cost identical to vanilla LoRA.  The experiment fine-tunes the encoder-only DeBERTa-v3-base model on the MNLI portion of GLUE using three different parameter-efficient fine-tuning schemes:  (1) ordinary LoRA with a fixed rank of 8 for every projection matrix; (2) AdaLoRA, the published adaptive-rank baseline; (3) the proposed GLoRA.  All runs share the same optimisation schedule and global LoRA-rank budget.  During the first warm-up epoch GLoRA keeps a running EMA of the Frobenius norm of each LoRA gradient; the resulting scores are used to redistribute the fixed total rank across layers.  Because the signal is collected during the normal backward pass, no extra training steps or SVDs are introduced.  At the warm-up boundary the LoRA modules are rebuilt with their newly assigned ranks and training proceeds for the remaining epochs.  We measure development-set accuracy and Matthews correlation on MNLI and record wall-clock training time on one A100 to demonstrate that GLoRA matches AdaLoRA’s accuracy with LoRA-level speed.",
+          "evaluation_metrics": [
+            "Accuracy",
+            "Matthews Correlation",
+            "Wall-clock Training Time"
+          ],
+          "proposed_method": "Gradient-Norm Aware Rank Allocation for LoRA (GLoRA)\nObjective: Achieve adaptive allocation of the LoRA rank budget across layers without the heavy SVD-based importance analysis used by AdaLoRA.\nAlgorithm:\n1. Start from the standard LoRA formulation Δ=ABᵀ with an initial uniform rank r_init.\n2. For every LoRA layer k maintain an exponential moving average g_k of its gradient Frobenius norm:\n   g_k ← β·g_k + (1−β)·∥∂L/∂Δ_k∥_F.\n3. Collect g_k during the first T_warmup optimisation steps (one epoch in our setup).\n4. After warm-up compute importance scores s_k = g_k / Σ_j g_j and convert them into integer ranks r_k = round(R_total·s_k).  Correct rounding so Σ_k r_k = R_total.\n5. Re-initialise each LoRA module with its new rank, copying already learned columns that are kept and randomly initialising added columns.\n6. Continue training for the remaining epochs with the redistributed budget.\nImplementation details:\n• A lightweight wrapper around HuggingFace PEFT registers backward hooks on lora_B weights to accumulate gradient norms, adding virtually zero overhead.\n• Rank re-allocation uses the update_layer() utility supplied by PEFT, so no custom CUDA kernels are required.\n• Hyper-parameters identical to vanilla LoRA: AdamW, lr=2e-4, batch=32, 3 epochs.  Only β (0.9), T_warmup (1 epoch) and R_total (num_layers×8) are additional.\nTheoretical motivation: The gradient norm is a first-order proxy for the loss sensitivity to parameter perturbations; allocating more capacity where this sensitivity is high should maximise loss reduction per parameter—mirroring the intuition behind AdaLoRA but without second-order analysis.",
+          "comparative_methods": [
+            "AdaLoRA"
+          ],
+          "models_to_use": [
+            "DeBERTa-v3-base (86M)"
+          ],
+          "datasets_to_use": [
+            "GLUE MNLI"
+          ],
+          "hyperparameters_to_search": {
+            "learning_rate": "1e-4-5e-4",
+            "beta (EMA)": "0.8-0.99",
+            "total_rank": "96,128,160",
+            "warmup_steps": "500-1500"
+          }
+        },
+        "experiment_runs": [
+          {
+            "run_id": "proposed-DeBERTa-v3-base-86M--GLUE-MNLI",
+            "method_name": "proposed",
+            "model_name": "DeBERTa-v3-base (86M)",
+            "dataset_name": "GLUE MNLI"
+          },
+          {
+            "run_id": "comparative-1-DeBERTa-v3-base-86M--GLUE-MNLI",
+            "method_name": "comparative-1",
+            "model_name": "DeBERTa-v3-base (86M)",
+            "dataset_name": "GLUE MNLI"
+          }
+        ]
       }
     ]
   }
