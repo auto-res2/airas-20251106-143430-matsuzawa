@@ -1,0 +1,82 @@
+# config/config.yaml – root Hydra configuration.
+# NOTE: Per-run settings live in ``config/run/<run_id>.yaml`` and are *merged* at
+# run-time.  Only high-level defaults / global options live here.
+
+run: null          # to be provided via CLI override (e.g. run=my-run-id)
+results_dir: outputs
+mode: full         # or trial
+seed: 42
+
+wandb:
+  entity: gengaru617-personal
+  project: 251106-test
+  mode: online  # automatically overridden in trial mode
+
+training:
+  # These act as *fallbacks* – will be overwritten by per-run YAML.
+  epochs: 3
+  learning_rate: 2e-4
+  weight_decay: 0.01
+  lr_warmup_steps: 1000
+  max_grad_norm: 1.0
+  gradient_accumulation_steps: 1
+  max_train_batches: null
+  max_val_batches: null
+
+dataset:
+  batch_size: 32
+  max_length: 256
+
+optuna:
+  n_trials: 0
+  direction: maximize
+  metric: best_val_acc
+  search_space: {}
+
+# A dummy *run* node so that downstream accesses like cfg.run.<field> work even
+# before merging the per-run YAML.
+run_node_placeholder: {}
+
+# Hydra output – keep logs inside original working directory
+hydra:
+  run:
+    dir: logs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  output_subdir: .
+  job:
+    chdir: False
+  sweeper:
+    params: {}
+  sweeper:
+    _target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
+    max_batch_size: null
+    params: {}
+  launcher:
+    _target_: hydra._internal.core_plugins.basic_launcher.BasicLauncher
+    n_jobs: 1
+  help: False
+  verbose: False
+  version_base: 1.3
+  searchpath: []
+  callbacks: {}
+  mode: RUN
+  overrides:
+    hydra/hydra_help: default
+    hydra/help: default
+    hydra/output: default
+    hydra/job_logging: default
+    hydra/debugging: default
+    hydra/env: default
+    hydra/overrides: default
+    hydra/launcher: basic
+    hydra/sweeper: basic
+    hydra/run: default
+  help_template: """Command line Overrides:  (Use 'python your_script.py --help' to show this message)"""  # noqa
+  help_short: """"""
+
+# end of config.yaml
+
+# The actual experiment-specific YAMLs live in config/run/*.yaml and are not
+# tracked here – they are provided by the research workflow as described in the
+# documentation.  At run-time we load & merge them dynamically.
+
+# EOF

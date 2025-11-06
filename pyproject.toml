@@ -1,1 +1,20 @@
-# Please list the required python packages.
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+
+[project]
+name = "glora_experiments"
+version = "0.1.0"
+description = "Experimental framework for GLoRA vs baselines (LoRA, AdaLoRA) using Hydra + WandB"
+requires-python = ">=3.9"
+
+[project.dependencies]
+# Core
+torch = "*"
+transformers = ">=4.36"
+datasets = ">=2.14"
+hydra-core = ">=1.3.2"
+wandb = ">=0.15"
+optuna = ">=3.3"
+peft = ">=0.6"
+seaborn = "*"
+matplotlib = "*"

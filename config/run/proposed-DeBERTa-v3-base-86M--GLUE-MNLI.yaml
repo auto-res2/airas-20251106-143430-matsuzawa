@@ -1,0 +1,57 @@
+run_id: proposed-DeBERTa-v3-base-86M--GLUE-MNLI
+method: proposed
+method_name: GLoRA
+model:
+  backbone: microsoft/deberta-v3-base
+  peft:
+    type: lora
+    init_rank: 8
+  hidden_size: 768
+  num_layers: 12
+  num_parameters: 86M
+dataset:
+  name: glue_mnli
+  max_length: 256
+  batch_size: 32
+training:
+  epochs: 3
+  optimizer: adamw
+  learning_rate: 2e-4
+  weight_decay: 0.01
+  lr_scheduler: linear
+  lr_warmup_steps: 1000
+  max_grad_norm: 1.0
+  gradient_checkpointing: false
+glo_ra:
+  total_rank_budget: 128
+  beta_ema: 0.9
+  warmup_steps: 12000
+evaluation:
+  metrics: [accuracy, matthews_corrcoef]
+  track_training_time: true
+hardware:
+  gpu_type: a100
+  num_gpus: 1
+optuna:
+  n_trials: 25
+  direction: maximize
+  metric: validation_accuracy
+  search_space:
+    learning_rate:
+      type: loguniform
+      low: 1.0e-4
+      high: 5.0e-4
+    beta_ema:
+      type: uniform
+      low: 0.8
+      high: 0.99
+    total_rank_budget:
+      type: categorical
+      choices: [96, 128, 160]
+    warmup_steps:
+      type: int
+      low: 500
+      high: 1500
+    batch_size:
+      type: categorical
+      choices: [16, 32, 64]
