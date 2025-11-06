@@ -45,8 +45,6 @@ hydra:
   job:
     chdir: False
   sweeper:
-    params: {}
-  sweeper:
     _target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
     max_batch_size: null
     params: {}
@@ -70,8 +68,8 @@ hydra:
     hydra/launcher: basic
     hydra/sweeper: basic
     hydra/run: default
-  help_template: """Command line Overrides:  (Use 'python your_script.py --help' to show this message)"""  # noqa
-  help_short: """"""
+  help_template: "Command line Overrides:  (Use 'python your_script.py --help' to show this message)"
+  help_short: ""
 
 # end of config.yaml
 
