@@ -126,6 +126,136 @@
             "beta (EMA)": "0.8-0.99",
             "total_rank": "96,128,160",
             "warmup_steps": "500-1500"
+          },
+          "external_resources": {
+            "hugging_face": {
+              "models": [
+                {
+                  "id": "microsoft/deberta-v3-base",
+                  "author": "microsoft",
+                  "sha": "8ccc9b6f36199bec6961081d44eb72fb3f7353f3",
+                  "created_at": "2022-03-02T23:29:05+00:00",
+                  "last_modified": "2022-09-22T12:34:19+00:00",
+                  "private": false,
+                  "gated": false,
+                  "disabled": false,
+                  "downloads": 2518675,
+                  "likes": 372,
+                  "siblings": [
+                    {
+                      "rfilename": ".gitattributes"
+                    },
+                    {
+                      "rfilename": "README.md"
+                    },
+                    {
+                      "rfilename": "config.json"
+                    },
+                    {
+                      "rfilename": "pytorch_model.bin"
+                    },
+                    {
+                      "rfilename": "rust_model.ot"
+                    },
+                    {
+                      "rfilename": "spm.model"
+                    },
+                    {
+                      "rfilename": "tf_model.h5"
+                    },
+                    {
+                      "rfilename": "tokenizer_config.json"
+                    }
+                  ],
+                  "card_data": {
+                    "license": "mit",
+                    "language": "en",
+                    "tags": [
+                      "deberta",
+                      "deberta-v3",
+                      "fill-mask"
+                    ],
+                    "datasets": [],
+                    "task_categories": [],
+                    "size_categories": [],
+                    "metrics": [],
+                    "widget": []
+                  },
+                  "tags": [
+                    "transformers",
+                    "pytorch",
+                    "tf",
+                    "rust",
+                    "deberta-v2",
+                    "deberta",
+                    "deberta-v3",
+                    "fill-mask",
+                    "en",
+                    "arxiv:2006.03654",
+                    "arxiv:2111.09543",
+                    "license:mit",
+                    "endpoints_compatible",
+                    "region:us"
+                  ],
+                  "pipeline_tag": "fill-mask",
+                  "library_name": "transformers",
+                  "readme": "---\nlanguage: en\ntags: \n  - deberta\n  - deberta-v3\n  - fill-mask\nthumbnail: https://huggingface.co/front/thumbnails/microsoft.png\nlicense: mit\n---\n\n## DeBERTaV3: Improving DeBERTa using ELECTRA-Style Pre-Training with Gradient-Disentangled Embedding Sharing\n\n[DeBERTa](https://arxiv.org/abs/2006.03654) improves the BERT and RoBERTa models using disentangled attention and enhanced mask decoder. With those two improvements, DeBERTa out perform RoBERTa on a majority of NLU tasks with 80GB training data. \n\nIn [DeBERTa V3](https://arxiv.org/abs/2111.09543), we further improved the efficiency of DeBERTa using ELECTRA-Style pre-training with Gradient Disentangled Embedding Sharing. Compared to DeBERTa,  our V3 version significantly improves the model performance on downstream tasks.  You can find more technique details about the new model from our [paper](https://arxiv.org/abs/2111.09543).\n\nPlease check the [official repository](https://github.com/microsoft/DeBERTa) for more implementation details and updates.\n\nThe DeBERTa V3 base model comes with 12 layers and a hidden size of 768. It has only 86M backbone parameters  with a vocabulary containing 128K tokens which introduces 98M parameters in the Embedding layer.  This model was trained using the 160GB data as DeBERTa V2.\n\n\n#### Fine-tuning on NLU tasks\n\nWe present the dev results on SQuAD 2.0 and MNLI tasks.\n\n| Model             |Vocabulary(K)|Backbone #Params(M)| SQuAD 2.0(F1/EM) | MNLI-m/mm(ACC)|\n|-------------------|----------|-------------------|-----------|----------|\n| RoBERTa-base      |50     |86                 | 83.7/80.5 | 87.6/-   |\n| XLNet-base        |32     |92                 | -/80.2    | 86.8/-   |\n| ELECTRA-base      |30    |86                  | -/80.5    | 88.8/    |\n| DeBERTa-base      |50     |100                |  86.2/83.1| 88.8/88.5|\n| DeBERTa-v3-base   |128|86                       | **88.4/85.4** | **90.6/90.7**|\n| DeBERTa-v3-base + SiFT |128|86                | -/- | 91.0/-|\n\nWe present the dev results on SQuAD 1.1/2.0 and MNLI tasks.\n\n#### Fine-tuning with HF transformers\n\n```bash\n#!/bin/bash\n\ncd transformers/examples/pytorch/text-classification/\n\npip install datasets\nexport TASK_NAME=mnli\n\noutput_dir=\"ds_results\"\n\nnum_gpus=8\n\nbatch_size=8\n\npython -m torch.distributed.launch --nproc_per_node=${num_gpus} \\\n  run_glue.py \\\n  --model_name_or_path microsoft/deberta-v3-base \\\n  --task_name $TASK_NAME \\\n  --do_train \\\n  --do_eval \\\n  --evaluation_strategy steps \\\n  --max_seq_length 256 \\\n  --warmup_steps 500 \\\n  --per_device_train_batch_size ${batch_size} \\\n  --learning_rate 2e-5 \\\n  --num_train_epochs 3 \\\n  --output_dir $output_dir \\\n  --overwrite_output_dir \\\n  --logging_steps 1000 \\\n  --logging_dir $output_dir\n\n```\n\n### Citation\n\nIf you find DeBERTa useful for your work, please cite the following papers:\n\n``` latex\n@misc{he2021debertav3,\n      title={DeBERTaV3: Improving DeBERTa using ELECTRA-Style Pre-Training with Gradient-Disentangled Embedding Sharing}, \n      author={Pengcheng He and Jianfeng Gao and Weizhu Chen},\n      year={2021},\n      eprint={2111.09543},\n      archivePrefix={arXiv},\n      primaryClass={cs.CL}\n}\n```\n\n``` latex\n@inproceedings{\nhe2021deberta,\ntitle={DEBERTA: DECODING-ENHANCED BERT WITH DISENTANGLED ATTENTION},\nauthor={Pengcheng He and Xiaodong Liu and Jianfeng Gao and Weizhu Chen},\nbooktitle={International Conference on Learning Representations},\nyear={2021},\nurl={https://openreview.net/forum?id=XPZIaotutsD}\n}\n```\n",
+                  "extracted_code": ""
+                }
+              ],
+              "datasets": [
+                {
+                  "id": "Neuronovo/neuronovo-utc-data-glue-mnli",
+                  "author": "Neuronovo",
+                  "sha": "a1fbcdc0845b1793f066ceea222f1a60cc263a5f",
+                  "created_at": "2024-01-25T19:46:58+00:00",
+                  "last_modified": "2024-01-25T21:01:39+00:00",
+                  "private": false,
+                  "gated": false,
+                  "disabled": false,
+                  "downloads": 56,
+                  "likes": 0,
+                  "siblings": [
+                    {
+                      "rfilename": ".gitattributes"
+                    },
+                    {
+                      "rfilename": "README.md"
+                    },
+                    {
+                      "rfilename": "data/test-00000-of-00001.parquet"
+                    },
+                    {
+                      "rfilename": "data/train-00000-of-00001.parquet"
+                    },
+                    {
+                      "rfilename": "data/validation-00000-of-00001.parquet"
+                    }
+                  ],
+                  "card_data": {
+                    "language": [],
+                    "tags": [],
+                    "datasets": [],
+                    "task_categories": [],
+                    "size_categories": [],
+                    "metrics": [],
+                    "widget": []
+                  },
+                  "tags": [
+                    "size_categories:1M<n<10M",
+                    "format:parquet",
+                    "modality:tabular",
+                    "modality:text",
+                    "library:datasets",
+                    "library:pandas",
+                    "library:mlcroissant",
+                    "library:polars",
+                    "region:us"
+                  ],
+                  "readme": "---\ndataset_info:\n  features:\n  - name: x\n    dtype: string\n  - name: y\n    dtype: int64\n  - name: label_id\n    dtype: int64\n  - name: text\n    dtype: string\n  - name: id\n    dtype: int64\n  splits:\n  - name: train\n    num_bytes: 492690051\n    num_examples: 1119828\n  - name: validation\n    num_bytes: 25718605\n    num_examples: 58278\n  - name: test\n    num_bytes: 26234868\n    num_examples: 58941\n  download_size: 144048422\n  dataset_size: 544643524\nconfigs:\n- config_name: default\n  data_files:\n  - split: train\n    path: data/train-*\n  - split: validation\n    path: data/validation-*\n  - split: test\n    path: data/test-*\n---\n"
+                }
+              ]
+            }
           }
         },
         "experiment_runs": [
