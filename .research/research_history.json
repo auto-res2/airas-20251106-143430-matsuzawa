@@ -6,5 +6,16 @@
     "learning rate scheduling",
     "mixed precision training",
     "gradient accumulation"
+  ],
+  "research_study_list": [
+    {
+      "title": "Adaptive Budget Allocation for Parameter-Efficient Fine-Tuning "
+    },
+    {
+      "title": "Parameter-Efficient Fine-Tuning Design Spaces"
+    },
+    {
+      "title": "A Gradient Accumulation Method for Dense Retriever under Memory Constraint"
+    }
   ]
 }
