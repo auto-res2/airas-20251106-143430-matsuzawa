@@ -101,6 +101,10 @@
       "expected_result": "1. Accuracy: GLoRA ≈ AdaLoRA > vanilla LoRA.  We expect +0.5-1.0 GLUE score points over uniform LoRA, matching 90-95 % of AdaLoRA’s gain.\n2. Training time: GLoRA ≈ LoRA (within ±2 %), clearly faster than AdaLoRA (which reports +11-16 %).\n3. Parameter count: identical to AdaLoRA, both respect the same global budget.",
       "expected_conclusion": "A single extra bookkeeping line (EMA of gradient norms) is enough to reap most of the benefits of adaptive budget allocation without incurring the computational overhead of AdaLoRA’s SVD-based importance analysis.  This demonstrates that inexpensive first-order signals already available in standard training loops can guide parameter-efficient fine-tuning, making advanced PEFT techniques accessible to practitioners with limited hardware or engineering budget."
     },
-    "iterations": []
+    "iterations": [
+      {
+        "method": "Gradient-Norm Aware Rank Allocation for LoRA (GLoRA)\n1. Keep the ordinary LoRA parameterisation W  ←  W  +  Δ where Δ=AB^T,  rank r.\n2. During the first Twarmup optimisation steps record, for every trainable weight matrix k, the exponential-moving-average (EMA) of its LoRA gradient Frobenius norm:  g_k  ←  β·g_k  +  (1-β)·||∂L/∂Δ_k||_F.\n3. After warm-up compute importance scores  s_k  =  g_k / Σ_j g_j.\n4. Given a global rank budget Rtotal (e.g. 128), assign matrix-specific ranks  r_k  =  round( Rtotal · s_k ).  Ensure Σ_k r_k  =  Rtotal by adding / removing 1 where needed.\n5. Re-initialise each LoRA layer with its new rank (easy because LoRA stores A∈ℝ^{d×r}, B∈ℝ^{d×r}).  The already learned sub-matrices for the kept columns are copied; extra columns are created with the same init as LoRA; dropped columns are discarded.  Training then continues normally.\n\nWhy it should work: the gradient norm is a first-order estimate of how much the loss would change if the associated parameters were perturbed. It therefore correlates with parameter importance but is essentially free to compute (it is produced anyway by back-prop).  Unlike AdaLoRA we do not need an SVD or per-singular-value statistics, so no extra forward / backward passes are introduced."
+      }
+    ]
   }
 }
